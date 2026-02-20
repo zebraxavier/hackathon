@@ -4,15 +4,15 @@ const rateLimit = require('express-rate-limit');
 // Rate limiter for OTP registration requests
 const otpRegistrationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Max 5 requests per window per IP
+  max: 20, // Max 20 requests per window per IP (increased for testing)
   message: {
     success: false,
     message: 'Too many registration attempts. Please try again after 15 minutes.'
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Skip rate limiting in test environment
-  skip: (req) => process.env.NODE_ENV === 'test'
+  // Skip rate limiting in development/test environment
+  skip: (req) => process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test'
 });
 
 // Rate limiter for OTP verification requests

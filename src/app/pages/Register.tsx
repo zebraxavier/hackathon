@@ -53,11 +53,21 @@ const Register = () => {
     setLoading(true);
     
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Call the actual register API
+      await register({
+        name: formData.fullName,
+        email: formData.email,
+        password: formData.password,
+        phone: formData.phone,
+        dateOfBirth: formData.dob,
+        gender: formData.gender,
+        address: formData.address
+      });
+      
       setShowOTP(true);
       toast.success('OTP sent to your email for verification');
-    } catch (error) {
-      toast.error('Registration failed. Please try again.');
+    } catch (error: any) {
+      toast.error(error.message || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -71,7 +81,7 @@ const Register = () => {
     
     setLoading(true);
     try {
-      await verifyOTP(formData.email, otp);
+      await verifyOTP({ email: formData.email, otp });
       setShowOTP(false);
       setShowSuccess(true);
       
