@@ -37,6 +37,16 @@ const Register = () => {
     });
   };
 
+  const registerAccount = () => register({
+    name: formData.fullName,
+    email: formData.email,
+    password: formData.password,
+    phone: formData.phone,
+    dateOfBirth: formData.dob,
+    gender: formData.gender,
+    address: formData.address,
+  });
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -53,21 +63,25 @@ const Register = () => {
     setLoading(true);
     
     try {
-      // Call the actual register API
-      await register({
-        name: formData.fullName,
-        email: formData.email,
-        password: formData.password,
-        phone: formData.phone,
-        dateOfBirth: formData.dob,
-        gender: formData.gender,
-        address: formData.address
-      });
-      
+      await registerAccount();
+
       setShowOTP(true);
       toast.success('OTP sent to your email for verification');
     } catch (error: any) {
       toast.error(error.message || 'Registration failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOTP = async () => {
+    setLoading(true);
+    try {
+      await registerAccount();
+      setOtp('');
+      toast.success('A new OTP has been sent to your email');
+    } catch (error: any) {
+      toast.error(error.message || 'Could not resend OTP. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -81,7 +95,7 @@ const Register = () => {
     
     setLoading(true);
     try {
-      await verifyOTP({ email: formData.email, otp });
+      await verifyOTP(formData.email, otp);
       setShowOTP(false);
       setShowSuccess(true);
       
@@ -348,6 +362,15 @@ const Register = () => {
               }}
             >
               {loading ? 'Verifying...' : 'Verify & Complete Registration'}
+            </button>
+
+            <button
+              type="button"
+              className="btn btn-link text-decoration-none"
+              onClick={handleResendOTP}
+              disabled={loading}
+            >
+              Didn't get a code? Resend
             </button>
           </div>
         </DialogContent>

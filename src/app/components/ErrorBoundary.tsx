@@ -1,4 +1,4 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertCircle } from 'lucide-react';
 
 interface Props {
@@ -46,7 +46,7 @@ class ErrorBoundary extends Component<Props, State> {
             <p className="text-muted mb-4">
               We're sorry for the inconvenience. The application encountered an unexpected error.
             </p>
-            {process.env.NODE_ENV === 'development' && this.state.error && (
+            {import.meta.env.DEV && this.state.error && (
               <div className="alert alert-danger text-start mb-4" style={{ maxWidth: '600px', margin: '0 auto' }}>
                 <strong>Error Details:</strong>
                 <pre className="mt-2 mb-0 small">{this.state.error.toString()}</pre>

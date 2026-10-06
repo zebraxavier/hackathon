@@ -20,4 +20,6 @@ const chatSchema = new mongoose.Schema({
   }
 });
 
+chatSchema.index({ userId: 1, timestamp: -1 });
+
 module.exports = mongoose.model('Chat', chatSchema);

@@ -1,88 +1,64 @@
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
+const { isProduction } = require('../config/env');
 
-// ============================================================================
-// OPTIMIZED OTP EMAIL CONFIGURATION
-// ============================================================================
+// OTP lifetime, shared by the route that stores it and the email that states it.
+const OTP_TTL_MINUTES = 10;
 
-const GMAIL_CONFIG = {
-  email: 'emmeleo2002@gmail.com',
-  password: 'avxpaoldfiudejya'
-};
+// Generate a cryptographically secure 6-digit OTP
+const generateOTP = () => crypto.randomInt(100000, 1000000).toString();
 
-// Generate secure 6-digit OTP
-const generateOTP = () => {
-  const randomBytes = crypto.randomBytes(3);
-  const otp = (parseInt(randomBytes.toString('hex'), 16) % 900000) + 100000;
-  return otp.toString();
-};
+// OTPs are stored hashed so a database leak does not expose live codes.
+const hashOTP = (otp) => crypto.createHash('sha256').update(String(otp)).digest('hex');
 
-// Validate email
-const isValidEmail = (email) => {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
-};
+const isEmailConfigured = () => Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS);
 
-// ============================================================================
-// FAST EMAIL SENDING - Optimized for speed
-// ============================================================================
-
-const sendOTPEmail = async (email, otp) => {
-  console.log('\n📧 Sending OTP to:', email);
-  console.log('🔐 OTP:', otp);
-
-  if (!isValidEmail(email)) {
-    console.error('❌ Invalid email format');
-    return false;
-  }
-
-  try {
-    // Create transporter - Using port 587 (TLS) which is fastest
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
+let transporter = null;
+const getTransporter = () => {
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+      port: Number(process.env.EMAIL_PORT) || 587,
+      secure: Number(process.env.EMAIL_PORT) === 465,
       auth: {
-        user: GMAIL_CONFIG.email,
-        pass: GMAIL_CONFIG.password
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
       },
-      tls: {
-        rejectUnauthorized: false
-      },
-      // Reduced timeouts for faster delivery
       connectionTimeout: 10000,
       greetingTimeout: 10000,
       socketTimeout: 10000
     });
+  }
+  return transporter;
+};
 
-    // Verify connection (quick check)
-    console.log('🔌 Connecting to Gmail...');
-    await transporter.verify();
-    console.log('✅ Connected!');
-
-    // Send email
-    console.log('📤 Sending email...');
-    const info = await transporter.sendMail({
-      from: `"Clinical Platform" <${GMAIL_CONFIG.email}>`,
-      to: email,
-      subject: 'Your Clinical Platform OTP',
-      html: getEmailTemplate(otp),
-      text: `Your OTP is: ${otp}. Valid for 10 minutes.`
-    });
-
-    console.log('✅✅✅ EMAIL SENT SUCCESSFULLY! ✅✅✅');
-    console.log(`   To: ${email}`);
-    console.log(`   OTP: ${otp}\n`);
-    
+// Sends the OTP email. Returns true when the user can obtain the code.
+// Outside production, when SMTP is not configured or fails, the OTP is printed
+// to the server console so local development works without an email account.
+const sendOTPEmail = async (email, otp) => {
+  if (!isEmailConfigured()) {
+    if (isProduction()) {
+      console.error('❌ Email is not configured (EMAIL_USER / EMAIL_PASS); cannot send OTP');
+      return false;
+    }
+    console.log(`🔐 [dev] OTP for ${email}: ${otp}`);
     return true;
-    
+  }
+
+  try {
+    await getTransporter().sendMail({
+      from: process.env.EMAIL_FROM || `"Clinical Platform" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: 'Your Clinical Platform verification code',
+      html: getEmailTemplate(otp),
+      text: `Your verification code is: ${otp}. It is valid for ${OTP_TTL_MINUTES} minutes.`
+    });
+    return true;
   } catch (error) {
-    console.error('❌ Email failed:', error.message);
-    
-    // Fallback to console
-    console.log(`\n🔐 FALLBACK OTP for ${email}: ${otp}\n`);
-    return true; // Still return true to allow registration
+    console.error(`❌ Failed to send OTP email: ${error.message}`);
+    if (isProduction()) return false;
+    console.log(`🔐 [dev] OTP for ${email}: ${otp}`);
+    return true;
   }
 };
 
@@ -114,7 +90,7 @@ const getEmailTemplate = (otp) => {
               <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 25px 50px; display: inline-block; margin: 20px 0;">
                 <p style="color: #ffffff; font-size: 42px; font-weight: bold; margin: 0; letter-spacing: 12px;">${otp}</p>
               </div>
-              <p style="color: #742a2a; font-size: 14px;">⏰ Valid for 10 minutes</p>
+              <p style="color: #742a2a; font-size: 14px;">⏰ Valid for ${OTP_TTL_MINUTES} minutes</p>
             </td>
           </tr>
         </table>
@@ -126,4 +102,4 @@ const getEmailTemplate = (otp) => {
   `;
 };
 
-module.exports = { generateOTP, sendOTPEmail };
+module.exports = { generateOTP, hashOTP, sendOTPEmail, OTP_TTL_MINUTES };

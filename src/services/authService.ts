@@ -21,74 +21,30 @@ export interface VerifyOTPData {
   otp: string;
 }
 
-// Register new patient
-export const register = async (data: RegisterData) => {
-  try {
-    const response = await apiRequest('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-    
-    return response;
-  } catch (error: any) {
-    throw new Error(error.message || 'Registration failed');
+const storeSession = (response: any) => {
+  if (response.success && response.token) {
+    setToken(response.token);
+    setUser(response.user);
   }
+  return response;
 };
 
-// Verify OTP
-export const verifyOTP = async (data: VerifyOTPData) => {
-  try {
-    const response = await apiRequest('/auth/verify-otp', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-    
-    if (response.success && response.token) {
-      setToken(response.token);
-      setUser(response.user);
-    }
-    
-    return response;
-  } catch (error: any) {
-    throw new Error(error.message || 'OTP verification failed');
-  }
-};
+// Register new patient (also resends the OTP for an unverified account)
+export const register = (data: RegisterData) =>
+  apiRequest('/auth/register', { method: 'POST', body: JSON.stringify(data) });
 
-// Login user
-export const login = async (data: LoginData) => {
-  try {
-    const response = await apiRequest('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-    
-    if (response.success && response.token) {
-      setToken(response.token);
-      setUser(response.user);
-    }
-    
-    return response;
-  } catch (error: any) {
-    throw new Error(error.message || 'Login failed');
-  }
-};
+export const verifyOTP = async (data: VerifyOTPData) =>
+  storeSession(await apiRequest('/auth/verify-otp', { method: 'POST', body: JSON.stringify(data) }));
 
-// Logout user
+export const login = async (data: LoginData) =>
+  storeSession(await apiRequest('/auth/login', { method: 'POST', body: JSON.stringify(data) }));
+
 export const logout = async () => {
   try {
-    await apiRequest('/auth/logout', {
-      method: 'POST',
-    });
-  } catch (error) {
-    console.error('Logout error:', error);
+    await apiRequest('/auth/logout', { method: 'POST' });
+  } catch {
+    // Logout is client-side for stateless JWTs; ignore network errors.
   } finally {
     removeToken();
   }
-};
-
-export default {
-  register,
-  verifyOTP,
-  login,
-  logout,
 };

@@ -1,182 +1,139 @@
-const express = require('express');
-const router = express.Router();
-const multer = require('multer');
 const path = require('path');
+const express = require('express');
+const mongoose = require('mongoose');
+const router = express.Router();
 const Report = require('../models/Report');
 const Patient = require('../models/Patient');
 const User = require('../models/User');
+const asyncHandler = require('../utils/asyncHandler');
 const { protect } = require('../middleware/authMiddleware');
 const { authorize } = require('../middleware/roleMiddleware');
-
-// Configure multer for file upload
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'uploads/');
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'report-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|pdf|doc|docx/;
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = allowedTypes.test(file.mimetype);
-
-  if (mimetype && extname) {
-    return cb(null, true);
-  } else {
-    cb(new Error('Only images, PDFs, and documents are allowed'));
-  }
-};
-
-const upload = multer({
-  storage: storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-  fileFilter: fileFilter
-});
+const { validateObjectId } = require('../middleware/validateObjectId');
+const { upload, removeFile } = require('../config/upload');
 
 // POST /api/nurse/upload-report - Upload patient report
-router.post('/upload-report', protect, authorize('nurse', 'doctor'), upload.single('file'), async (req, res) => {
+router.post('/upload-report', protect, authorize('nurse', 'doctor'), upload.single('file'), asyncHandler(async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: 'Please upload a file' });
+  }
+
+  const { patientId, reportType, title, description, testDate } = req.body;
+
+  const reject = (status, message) => {
+    removeFile(req.file.path);
+    return res.status(status).json({ success: false, message });
+  };
+
+  if (!patientId || !title || !String(title).trim()) {
+    return reject(400, 'Please provide patient ID and report title');
+  }
+
+  if (!mongoose.isValidObjectId(patientId)) {
+    return reject(400, 'Invalid patient ID');
+  }
+
+  const patient = await User.findById(patientId);
+  if (!patient || patient.role !== 'patient') {
+    return reject(404, 'Patient not found');
+  }
+
+  let report;
   try {
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please upload a file'
-      });
-    }
-
-    const { patientId, reportType, title, description, testDate } = req.body;
-
-    if (!patientId || !title) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide patient ID and report title'
-      });
-    }
-
-    // Verify patient exists
-    const patient = await User.findById(patientId);
-    if (!patient || patient.role !== 'patient') {
-      return res.status(404).json({
-        success: false,
-        message: 'Patient not found'
-      });
-    }
-
-    const report = await Report.create({
+    report = await Report.create({
       patientId,
       uploadedBy: req.user._id,
       reportType: reportType || 'lab',
-      title,
+      title: String(title).trim(),
       description,
-      fileName: req.file.originalname,
-      filePath: req.file.path,
+      fileName: path.basename(req.file.originalname),
+      filePath: req.file.filename,
       fileSize: req.file.size,
       mimeType: req.file.mimetype,
       testDate: testDate || Date.now()
     });
-
-    const populatedReport = await Report.findById(report._id)
-      .populate('patientId', 'name email')
-      .populate('uploadedBy', 'name role');
-
-    res.status(201).json({
-      success: true,
-      message: 'Report uploaded successfully',
-      report: populatedReport
-    });
   } catch (error) {
-    console.error('Upload report error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to upload report'
-    });
+    removeFile(req.file.path);
+    throw error;
   }
-});
+
+  const populatedReport = await Report.findById(report._id)
+    .populate('patientId', 'name email')
+    .populate('uploadedBy', 'name role');
+
+  res.status(201).json({
+    success: true,
+    message: 'Report uploaded successfully',
+    report: populatedReport
+  });
+}));
+
+const toOptionalNumber = (value) => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : NaN;
+};
 
 // PUT /api/nurse/patient/:id/vitals - Update patient vitals
-router.put('/patient/:id/vitals', protect, authorize('nurse', 'doctor'), async (req, res) => {
-  try {
-    const { bloodPressure, heartRate, temperature, weight, height } = req.body;
+router.put('/patient/:id/vitals', protect, authorize('nurse', 'doctor'), validateObjectId(), asyncHandler(async (req, res) => {
+  const { bloodPressure } = req.body;
+  const numeric = {
+    heartRate: toOptionalNumber(req.body.heartRate),
+    temperature: toOptionalNumber(req.body.temperature),
+    weight: toOptionalNumber(req.body.weight),
+    height: toOptionalNumber(req.body.height)
+  };
 
-    const patient = await Patient.findOne({ userId: req.params.id });
-
-    if (!patient) {
-      return res.status(404).json({
-        success: false,
-        message: 'Patient not found'
-      });
-    }
-
-    patient.vitals = {
-      bloodPressure,
-      heartRate,
-      temperature,
-      weight,
-      height,
-      lastUpdated: Date.now()
-    };
-
-    await patient.save();
-
-    res.status(200).json({
-      success: true,
-      message: 'Vitals updated successfully',
-      vitals: patient.vitals
-    });
-  } catch (error) {
-    console.error('Update vitals error:', error);
-    res.status(500).json({
+  const invalid = Object.keys(numeric).filter((key) => Number.isNaN(numeric[key]));
+  if (invalid.length > 0) {
+    return res.status(400).json({
       success: false,
-      message: 'Failed to update vitals'
+      message: `Invalid value for: ${invalid.join(', ')}`
     });
   }
-});
+
+  if (bloodPressure !== undefined && bloodPressure !== '' && !/^\d{2,3}\/\d{2,3}$/.test(String(bloodPressure))) {
+    return res.status(400).json({
+      success: false,
+      message: 'Blood pressure must be in the format 120/80'
+    });
+  }
+
+  const patient = await Patient.findOne({ userId: req.params.id });
+  if (!patient) {
+    return res.status(404).json({ success: false, message: 'Patient not found' });
+  }
+
+  patient.vitals = {
+    bloodPressure: bloodPressure || undefined,
+    ...numeric,
+    lastUpdated: Date.now()
+  };
+
+  await patient.save();
+
+  res.status(200).json({
+    success: true,
+    message: 'Vitals updated successfully',
+    vitals: patient.vitals
+  });
+}));
 
 // GET /api/nurse/patients - Get all patients
-router.get('/patients', protect, authorize('nurse'), async (req, res) => {
-  try {
-    const patients = await User.find({ role: 'patient', isVerified: true })
-      .select('-password')
-      .sort({ createdAt: -1 });
+router.get('/patients', protect, authorize('nurse'), asyncHandler(async (req, res) => {
+  const patients = await User.find({ role: 'patient', isVerified: true }).sort({ createdAt: -1 });
 
-    res.status(200).json({
-      success: true,
-      count: patients.length,
-      patients
-    });
-  } catch (error) {
-    console.error('Get patients error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch patients'
-    });
-  }
-});
+  res.status(200).json({ success: true, count: patients.length, patients });
+}));
 
-// GET /api/nurse/reports - Get all reports uploaded by nurse
-router.get('/reports', protect, authorize('nurse', 'doctor'), async (req, res) => {
-  try {
-    const reports = await Report.find({ uploadedBy: req.user._id })
-      .populate('patientId', 'name email')
-      .populate('uploadedBy', 'name role')
-      .sort({ createdAt: -1 })
-      .limit(20);
+// GET /api/nurse/reports - Get recent reports uploaded by the current user
+router.get('/reports', protect, authorize('nurse', 'doctor'), asyncHandler(async (req, res) => {
+  const reports = await Report.find({ uploadedBy: req.user._id })
+    .populate('patientId', 'name email')
+    .populate('uploadedBy', 'name role')
+    .sort({ createdAt: -1 })
+    .limit(20);
 
-    res.status(200).json({
-      success: true,
-      count: reports.length,
-      reports
-    });
-  } catch (error) {
-    console.error('Get reports error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch reports'
-    });
-  }
-});
+  res.status(200).json({ success: true, count: reports.length, reports });
+}));
 
 module.exports = router;

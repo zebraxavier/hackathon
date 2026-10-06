@@ -41,6 +41,11 @@ const userSchema = new mongoose.Schema({
     type: Date,
     select: false
   },
+  otpAttempts: {
+    type: Number,
+    default: 0,
+    select: false
+  },
   address: {
     type: String,
     trim: true
@@ -68,6 +73,20 @@ userSchema.pre('save', async function(next) {
   this.password = await bcrypt.hash(this.password, salt);
   next();
 });
+
+// Never serialise credentials or OTP state, even if explicitly selected.
+userSchema.set('toJSON', {
+  transform: (doc, ret) => {
+    delete ret.password;
+    delete ret.otp;
+    delete ret.otpExpiry;
+    delete ret.otpAttempts;
+    delete ret.__v;
+    return ret;
+  }
+});
+
+userSchema.index({ role: 1, isVerified: 1 });
 
 // Compare password method
 userSchema.methods.comparePassword = async function(candidatePassword) {

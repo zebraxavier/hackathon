@@ -1,4 +1,4 @@
-import { apiRequest } from './api';
+import { apiRequest, getUser, setUser } from './api';
 
 export interface ProfileData {
   name?: string;
@@ -8,47 +8,25 @@ export interface ProfileData {
   gender?: string;
 }
 
-// Get user profile
-export const getProfile = async () => {
-  try {
-    const response = await apiRequest('/profile', {
-      method: 'GET',
-    });
-    
-    if (!response.success) {
-      throw new Error(response.message || 'Failed to load profile');
-    }
-    
-    return response;
-  } catch (error: any) {
-    throw new Error(error.message || 'Failed to load profile');
-  }
-};
+export const getProfile = () => apiRequest('/profile');
 
-// Update user profile
 export const updateProfile = async (data: ProfileData) => {
-  try {
-    const response = await apiRequest('/profile/update', {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
-    
-    if (!response.success) {
-      throw new Error(response.message || 'Failed to update profile');
-    }
-    
-    // Update user in localStorage
-    if (response.user) {
-      localStorage.setItem('user', JSON.stringify(response.user));
-    }
-    
-    return response;
-  } catch (error: any) {
-    throw new Error(error.message || 'Failed to update profile');
+  const response = await apiRequest('/profile/update', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+
+  // Keep the cached session user (used by the navbar) in sync.
+  if (response.user) {
+    const { id, name, email, role } = response.user;
+    setUser({ ...getUser(), id, name, email, role });
   }
+
+  return response;
 };
 
-export default {
-  getProfile,
-  updateProfile,
-};
+export const changePassword = (currentPassword: string, newPassword: string) =>
+  apiRequest('/profile/password', {
+    method: 'PUT',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });

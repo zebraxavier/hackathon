@@ -2,3 +2,8 @@
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+
+/* Sidebar navigation hover (inactive items only) */
+.sidebar-link:not([aria-current='page']):hover {
+  background-color: #f8f9fa;
+}

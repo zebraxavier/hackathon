@@ -1,260 +1,165 @@
 import React, { useState } from 'react';
-import { HelpCircle, MessageSquare, Phone, Mail, FileText, Search } from 'lucide-react';
-import { motion } from 'motion/react';
-import Sidebar from '../../components/Sidebar';
-import Navbar from '../../components/Navbar';
-import { toast } from 'sonner';
+import { HelpCircle, Mail, Search, AlertTriangle } from 'lucide-react';
+import DashboardLayout from '../../components/DashboardLayout';
+import { useAuth } from '../../context/AuthContext';
+
+// Configure the clinic's support inbox at build time.
+const SUPPORT_EMAIL = import.meta.env.VITE_SUPPORT_EMAIL || '';
+
+const FAQS: Record<string, { question: string; answer: string }[]> = {
+  patient: [
+    {
+      question: 'How do I book an appointment?',
+      answer: 'Click "Book Appointment" on your dashboard or open Appointments from the menu, then choose a doctor, date and time.',
+    },
+    {
+      question: 'How can I access my reports?',
+      answer: 'Open "My Reports" from the menu. Reports uploaded by your care team can be downloaded from there.',
+    },
+    {
+      question: 'Can I cancel an appointment?',
+      answer: 'Please contact the clinic to cancel or reschedule. Your doctor will update the appointment status.',
+    },
+    {
+      question: 'Is the AI assistant a replacement for a doctor?',
+      answer: 'No. The AI assistant provides general first aid guidance only. It cannot diagnose conditions or prescribe treatment. Always consult a qualified doctor.',
+    },
+  ],
+  doctor: [
+    {
+      question: 'How do I view a patient\'s records?',
+      answer: 'Open Patients from the menu and click the view icon next to a patient to see their reports, vitals and appointment history.',
+    },
+    {
+      question: 'How do I update an appointment?',
+      answer: 'Open Appointments from the menu and mark scheduled visits as completed, no-show or cancelled.',
+    },
+  ],
+  nurse: [
+    {
+      question: 'Which file types can I upload?',
+      answer: 'PDF, JPG, PNG, DOC and DOCX files up to 10MB.',
+    },
+    {
+      question: 'How do I record vitals?',
+      answer: 'Open Update Vitals from the menu, select the patient and enter the readings. Patients see their latest vitals on their dashboard.',
+    },
+  ],
+};
+
+const COMMON_FAQS = [
+  {
+    question: 'How do I change my password?',
+    answer: 'Go to Profile Settings → Security and enter your current and new password.',
+  },
+];
 
 const HelpSupport = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
-  const [supportMessage, setSupportMessage] = useState('');
+  const [subject, setSubject] = useState('Technical Issue');
+  const [message, setMessage] = useState('');
 
-  const faqs = [
-    {
-      question: 'How do I schedule an appointment?',
-      answer: 'You can schedule an appointment by clicking on the "Book Appointment" button in your dashboard, selecting your preferred doctor, date, and time slot.',
-    },
-    {
-      question: 'How can I access my lab reports?',
-      answer: 'Navigate to "My Reports" section from the sidebar menu. All your lab reports will be available for viewing and downloading.',
-    },
-    {
-      question: 'Can I reschedule or cancel an appointment?',
-      answer: 'Yes, you can reschedule or cancel appointments up to 24 hours before the scheduled time from the Appointments page.',
-    },
-    {
-      question: 'How do I update my personal information?',
-      answer: 'Go to Profile Settings and click on "Edit Profile" to update your personal information including contact details and medical history.',
-    },
-    {
-      question: 'Is my health data secure?',
-      answer: 'Yes, we use industry-standard encryption and comply with HIPAA regulations to ensure your health data is completely secure and private.',
-    },
-  ];
-
-  const contactMethods = [
-    {
-      icon: Phone,
-      title: 'Phone Support',
-      info: '+1 (800) 123-4567',
-      description: 'Mon-Fri, 8:00 AM - 6:00 PM EST',
-      color: '#667eea',
-    },
-    {
-      icon: Mail,
-      title: 'Email Support',
-      info: 'support@healthcareai.com',
-      description: 'Response within 24 hours',
-      color: '#10b981',
-    },
-    {
-      icon: MessageSquare,
-      title: 'Live Chat',
-      info: 'Chat with us',
-      description: 'Available 24/7',
-      color: '#f59e0b',
-    },
-  ];
-
-  const handleSubmitTicket = () => {
-    if (supportMessage.trim()) {
-      toast.success('Support ticket submitted successfully! We\'ll get back to you soon.');
-      setSupportMessage('');
-    }
-  };
-
-  const filteredFaqs = faqs.filter(faq =>
-    faq.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    faq.answer.toLowerCase().includes(searchQuery.toLowerCase())
+  const faqs = [...(FAQS[user?.role || 'patient'] || []), ...COMMON_FAQS];
+  const query = searchQuery.toLowerCase();
+  const filteredFaqs = faqs.filter(
+    (faq) => faq.question.toLowerCase().includes(query) || faq.answer.toLowerCase().includes(query)
   );
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const body = `${message.trim()}\n\n---\nAccount: ${user?.email} (${user?.role})`;
+    window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`[Support] ${subject}`)}&body=${encodeURIComponent(body)}`;
+  };
+
   return (
-    <div className="min-vh-100" style={{ background: '#f8f9fa', fontFamily: 'Inter, sans-serif' }}>
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      
-      <div className="d-lg-flex">
-        <div className="flex-grow-1">
-          <Navbar onMenuClick={() => setSidebarOpen(true)} />
-          
-          <div className="container-fluid p-4">
-            {/* Page Header */}
-            <div className="mb-4">
-              <h2 className="mb-2" style={{ fontFamily: 'Poppins, sans-serif' }}>
-                Help & Support
-              </h2>
-              <p className="text-muted">We're here to help you with any questions or issues</p>
+    <DashboardLayout title="Help & Support" subtitle="Answers to common questions and how to reach us">
+      <div className="alert alert-danger d-flex align-items-center gap-2" role="alert">
+        <AlertTriangle size={20} className="flex-shrink-0" />
+        <span>For a medical emergency, call your local emergency number immediately. Do not use this page.</span>
+      </div>
+
+      <div className="row g-4">
+        <div className="col-lg-8">
+          <div className="card border-0 shadow-sm">
+            <div className="card-body">
+              <h5 className="mb-3" style={{ fontFamily: 'Poppins, sans-serif' }}>Frequently Asked Questions</h5>
+
+              <div className="input-group mb-4">
+                <span className="input-group-text bg-white"><Search size={18} className="text-muted" /></span>
+                <input
+                  type="search"
+                  className="form-control"
+                  placeholder="Search FAQs..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  aria-label="Search FAQs"
+                />
+              </div>
+
+              <div className="d-flex flex-column gap-2">
+                {filteredFaqs.map((faq) => (
+                  <details key={faq.question} className="rounded-3 border bg-light">
+                    <summary className="p-3 d-flex align-items-center gap-2" style={{ cursor: 'pointer' }}>
+                      <HelpCircle size={18} className="text-primary flex-shrink-0" />
+                      {faq.question}
+                    </summary>
+                    <div className="px-3 pb-3 bg-light">{faq.answer}</div>
+                  </details>
+                ))}
+              </div>
+
+              {filteredFaqs.length === 0 && (
+                <p className="text-center py-4 text-muted mb-0">No FAQs found matching your search.</p>
+              )}
             </div>
+          </div>
+        </div>
 
-            {/* Search Bar */}
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-body">
-                <div className="input-group input-group-lg">
-                  <span className="input-group-text bg-white border-end-0">
-                    <Search size={20} className="text-muted" />
-                  </span>
-                  <input
-                    type="text"
-                    className="form-control border-start-0 ps-0"
-                    placeholder="Search for help articles, FAQs..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
+        <div className="col-lg-4">
+          <div className="card border-0 shadow-sm">
+            <div className="card-body">
+              <h5 className="mb-3 d-flex align-items-center gap-2" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                <Mail size={20} />
+                Contact Support
+              </h5>
 
-            <div className="row g-4">
-              {/* Contact Methods */}
-              <div className="col-lg-8">
-                <div className="row g-3 mb-4">
-                  {contactMethods.map((method, idx) => (
-                    <div key={idx} className="col-md-4">
-                      <motion.div
-                        className="card border-0 shadow-sm h-100"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.1 }}
-                        whileHover={{ y: -5 }}
-                      >
-                        <div className="card-body text-center p-4">
-                          <div
-                            className="rounded-circle d-inline-flex align-items-center justify-content-center mb-3"
-                            style={{
-                              width: '60px',
-                              height: '60px',
-                              backgroundColor: `${method.color}20`,
-                            }}
-                          >
-                            <method.icon size={28} style={{ color: method.color }} />
-                          </div>
-                          <h6 className="mb-2">{method.title}</h6>
-                          <p className="text-primary mb-1">{method.info}</p>
-                          <p className="text-muted small mb-0">{method.description}</p>
-                        </div>
-                      </motion.div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* FAQs */}
-                <div className="card border-0 shadow-sm">
-                  <div className="card-body">
-                    <h5 className="mb-4" style={{ fontFamily: 'Poppins, sans-serif' }}>
-                      Frequently Asked Questions
-                    </h5>
-
-                    <div className="accordion" id="faqAccordion">
-                      {filteredFaqs.map((faq, idx) => (
-                        <div key={idx} className="accordion-item border-0 mb-2">
-                          <h2 className="accordion-header">
-                            <button
-                              className="accordion-button collapsed bg-light"
-                              type="button"
-                              data-bs-toggle="collapse"
-                              data-bs-target={`#faq${idx}`}
-                            >
-                              <HelpCircle size={18} className="me-2 text-primary" />
-                              {faq.question}
-                            </button>
-                          </h2>
-                          <div
-                            id={`faq${idx}`}
-                            className="accordion-collapse collapse"
-                            data-bs-parent="#faqAccordion"
-                          >
-                            <div className="accordion-body bg-white">
-                              {faq.answer}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {filteredFaqs.length === 0 && (
-                      <div className="text-center py-4 text-muted">
-                        <p>No FAQs found matching your search.</p>
-                      </div>
-                    )}
+              {SUPPORT_EMAIL ? (
+                <form onSubmit={handleSubmit}>
+                  <p className="text-muted small">
+                    This opens an email to <strong>{SUPPORT_EMAIL}</strong> in your mail app.
+                  </p>
+                  <div className="mb-3">
+                    <label className="form-label" htmlFor="support-subject">Subject</label>
+                    <select id="support-subject" className="form-select" value={subject} onChange={(e) => setSubject(e.target.value)}>
+                      <option>Technical Issue</option>
+                      <option>Appointment Help</option>
+                      <option>Medical Records</option>
+                      <option>Other</option>
+                    </select>
                   </div>
-                </div>
-              </div>
-
-              {/* Submit Ticket */}
-              <div className="col-lg-4">
-                <div className="card border-0 shadow-sm">
-                  <div className="card-body">
-                    <h5 className="mb-4" style={{ fontFamily: 'Poppins, sans-serif' }}>
-                      Submit a Support Ticket
-                    </h5>
-
-                    <div className="mb-3">
-                      <label className="form-label">Subject</label>
-                      <select className="form-select">
-                        <option>Technical Issue</option>
-                        <option>Billing Question</option>
-                        <option>Appointment Help</option>
-                        <option>Medical Records</option>
-                        <option>Other</option>
-                      </select>
-                    </div>
-
-                    <div className="mb-3">
-                      <label className="form-label">Priority</label>
-                      <select className="form-select">
-                        <option>Low</option>
-                        <option>Medium</option>
-                        <option>High</option>
-                        <option>Urgent</option>
-                      </select>
-                    </div>
-
-                    <div className="mb-3">
-                      <label className="form-label">Message</label>
-                      <textarea
-                        className="form-control"
-                        rows={6}
-                        placeholder="Describe your issue in detail..."
-                        value={supportMessage}
-                        onChange={(e) => setSupportMessage(e.target.value)}
-                      />
-                    </div>
-
-                    <button
-                      className="btn btn-primary w-100"
-                      onClick={handleSubmitTicket}
-                    >
-                      Submit Ticket
-                    </button>
+                  <div className="mb-3">
+                    <label className="form-label" htmlFor="support-message">Message</label>
+                    <textarea
+                      id="support-message"
+                      className="form-control"
+                      rows={6}
+                      placeholder="Describe your issue in detail..."
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      required
+                    />
                   </div>
-                </div>
-
-                {/* Quick Links */}
-                <div className="card border-0 shadow-sm mt-3">
-                  <div className="card-body">
-                    <h6 className="mb-3">Quick Links</h6>
-                    <div className="d-flex flex-column gap-2">
-                      <a href="#" className="btn btn-outline-primary text-start">
-                        <FileText size={16} className="me-2" />
-                        Documentation
-                      </a>
-                      <a href="#" className="btn btn-outline-primary text-start">
-                        <HelpCircle size={16} className="me-2" />
-                        User Guide
-                      </a>
-                      <a href="#" className="btn btn-outline-primary text-start">
-                        <MessageSquare size={16} className="me-2" />
-                        Community Forum
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                  <button type="submit" className="btn btn-primary w-100">Email Support</button>
+                </form>
+              ) : (
+                <p className="text-muted mb-0">Please contact the clinic front desk for help with your account.</p>
+              )}
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </DashboardLayout>
   );
 };
 

@@ -5,8 +5,14 @@ const User = require('./models/User');
 const Patient = require('./models/Patient');
 const Appointment = require('./models/Appointment');
 const Chat = require('./models/Chat');
+const Report = require('./models/Report');
 
 const seed = async () => {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('❌ Refusing to seed: this script deletes all data and must not run in production.');
+    process.exit(1);
+  }
+
   try {
     console.log('🌱 Starting database seed...\n');
 
@@ -19,6 +25,7 @@ const seed = async () => {
     await Patient.deleteMany({});
     await Appointment.deleteMany({});
     await Chat.deleteMany({});
+    await Report.deleteMany({});
     console.log('✅ Cleared existing data\n');
 
     // Create Doctor (password will be hashed by User model)

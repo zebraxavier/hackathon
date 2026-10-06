@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode } from 'react';
 import * as authService from '../../services/authService';
-import { getUser, setUser as saveUser, removeToken } from '../../services/api';
+import { getToken, getUser, setUser as saveUser, removeToken } from '../../services/api';
 
 export type UserRole = 'doctor' | 'nurse' | 'patient';
 
@@ -14,10 +14,11 @@ export interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string, role: UserRole) => Promise<void>;
-  logout: () => void;
-  register: (data: any) => Promise<void>;
+  login: (email: string, password: string, role: UserRole) => Promise<User>;
+  logout: () => Promise<void>;
+  register: (data: authService.RegisterData) => Promise<void>;
   verifyOTP: (email: string, otp: string) => Promise<void>;
+  updateUser: (changes: Partial<User>) => void;
   isAuthenticated: boolean;
 }
 
@@ -31,85 +32,58 @@ export const useAuth = () => {
   return context;
 };
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
+// Read synchronously so protected routes don't bounce to login on page refresh.
+const loadSession = (): User | null => {
+  const saved = getUser();
+  if (!saved || !getToken()) {
+    removeToken();
+    return null;
+  }
+  return saved;
+};
 
-  // Load user from localStorage on mount
-  useEffect(() => {
-    const savedUser = getUser();
-    if (savedUser) {
-      setUser(savedUser);
-    }
-  }, []);
+const toUser = (data: any): User => ({
+  id: data.id,
+  name: data.name,
+  email: data.email,
+  role: data.role,
+});
+
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const [user, setUser] = useState<User | null>(loadSession);
 
   const login = async (email: string, password: string, role: UserRole) => {
-    try {
-      const response = await authService.login({ email, password, role });
-      
-      if (response.success && response.user) {
-        const userData: User = {
-          id: response.user.id,
-          name: response.user.name,
-          email: response.user.email,
-          role: response.user.role,
-        };
-        setUser(userData);
-        saveUser(userData);
-      }
-    } catch (error: any) {
-      throw new Error(error.message || 'Login failed');
-    }
+    const response = await authService.login({ email, password, role });
+    const userData = toUser(response.user);
+    setUser(userData);
+    saveUser(userData);
+    return userData;
   };
 
   const logout = async () => {
-    try {
-      await authService.logout();
-    } catch (error) {
-      console.error('Logout error:', error);
-    } finally {
-      setUser(null);
-      removeToken();
-      // Redirect to login page
-      window.location.href = '/';
-    }
+    await authService.logout();
+    setUser(null);
+    window.location.href = '/';
   };
 
-  const register = async (data: any) => {
-    try {
-      // Map form data to backend format
-      const registerData = {
-        name: data.fullName,
-        email: data.email,
-        password: data.password,
-        phone: data.phone,
-        dateOfBirth: data.dob,
-        gender: data.gender,
-        address: data.address,
-      };
-      
-      await authService.register(registerData);
-    } catch (error: any) {
-      throw new Error(error.message || 'Registration failed');
-    }
+  const register = async (data: authService.RegisterData) => {
+    await authService.register(data);
   };
 
   const verifyOTP = async (email: string, otp: string) => {
-    try {
-      const response = await authService.verifyOTP({ email, otp });
-      
-      if (response.success && response.user) {
-        const userData: User = {
-          id: response.user.id,
-          name: response.user.name,
-          email: response.user.email,
-          role: response.user.role,
-        };
-        setUser(userData);
-        saveUser(userData);
-      }
-    } catch (error: any) {
-      throw new Error(error.message || 'OTP verification failed');
-    }
+    const response = await authService.verifyOTP({ email, otp });
+    const userData = toUser(response.user);
+    setUser(userData);
+    saveUser(userData);
+  };
+
+  const updateUser = (changes: Partial<User>) => {
+    setUser((current) => {
+      if (!current) return current;
+      const next = { ...current, ...changes };
+      saveUser(next);
+      return next;
+    });
   };
 
   return (
@@ -120,6 +94,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         logout,
         register,
         verifyOTP,
+        updateUser,
         isAuthenticated: !!user,
       }}
     >

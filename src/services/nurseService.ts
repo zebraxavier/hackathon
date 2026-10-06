@@ -8,76 +8,18 @@ export interface VitalsData {
   height?: number;
 }
 
-// Upload report
-export const uploadReport = async (formData: FormData) => {
-  try {
-    const response = await apiRequestFormData('/nurse/upload-report', formData);
-    
-    if (!response.success) {
-      throw new Error(response.message || 'Failed to upload report');
-    }
-    
-    return response;
-  } catch (error: any) {
-    throw new Error(error.message || 'Failed to upload report');
-  }
-};
+export const uploadReport = (formData: FormData) => apiRequestFormData('/nurse/upload-report', formData);
 
-// Update patient vitals
-export const updatePatientVitals = async (patientId: string, vitals: VitalsData) => {
-  try {
-    const response = await apiRequest(`/nurse/patient/${patientId}/vitals`, {
-      method: 'PUT',
-      body: JSON.stringify(vitals),
-    });
-    
-    if (!response.success) {
-      throw new Error(response.message || 'Failed to update vitals');
-    }
-    
-    return response;
-  } catch (error: any) {
-    throw new Error(error.message || 'Failed to update vitals');
-  }
-};
+export const updatePatientVitals = (patientId: string, vitals: VitalsData) =>
+  apiRequest(`/nurse/patient/${patientId}/vitals`, { method: 'PUT', body: JSON.stringify(vitals) });
 
-// Get all patients (Nurse view)
 export const getAllPatients = async () => {
-  try {
-    const response = await apiRequest('/nurse/patients', {
-      method: 'GET',
-    });
-    
-    if (!response.success) {
-      throw new Error(response.message || 'Failed to load patients');
-    }
-    
-    return response.patients || [];
-  } catch (error: any) {
-    throw new Error(error.message || 'Failed to load patients');
-  }
+  const response = await apiRequest('/nurse/patients');
+  return response.patients || [];
 };
 
-// Get all reports uploaded by nurse
+// Recent reports uploaded by the current nurse
 export const getUploadedReports = async () => {
-  try {
-    const response = await apiRequest('/nurse/reports', {
-      method: 'GET',
-    });
-    
-    if (!response.success) {
-      throw new Error(response.message || 'Failed to load reports');
-    }
-    
-    return response.reports || [];
-  } catch (error: any) {
-    throw new Error(error.message || 'Failed to load reports');
-  }
-};
-
-export default {
-  uploadReport,
-  updatePatientVitals,
-  getAllPatients,
-  getUploadedReports,
+  const response = await apiRequest('/nurse/reports');
+  return response.reports || [];
 };

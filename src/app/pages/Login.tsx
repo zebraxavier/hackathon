@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router';
+import { useNavigate, Link, Navigate } from 'react-router';
 import { useAuth, UserRole } from '../context/AuthContext';
 import { motion } from 'motion/react';
 import { 
@@ -15,38 +15,27 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    
+
     try {
-      await login(email, password, role);
+      const loggedIn = await login(email, password, role);
       toast.success('Login successful!');
-      
-      // Small delay to ensure token is saved
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Navigate based on role
-      switch (role) {
-        case 'doctor':
-          navigate('/doctor/dashboard');
-          break;
-        case 'nurse':
-          navigate('/nurse/dashboard');
-          break;
-        case 'patient':
-          navigate('/patient/dashboard');
-          break;
-      }
+      navigate(`/${loggedIn.role}/dashboard`);
     } catch (error: any) {
       toast.error(error.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+
+  if (user) {
+    return <Navigate to={`/${user.role}/dashboard`} replace />;
+  }
 
   return (
     <div className="min-h-screen" style={{ fontFamily: 'Inter, sans-serif' }}>

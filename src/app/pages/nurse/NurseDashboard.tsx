@@ -1,458 +1,356 @@
-import React, { useState, useEffect } from 'react';
-import { Users, Upload, Activity, CheckCircle, FileText, Clock } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Users, Upload, FileText, Activity } from 'lucide-react';
 import { motion } from 'motion/react';
-import Sidebar from '../../components/Sidebar';
-import Navbar from '../../components/Navbar';
-import { uploadReport, getAllPatients, getUploadedReports } from '../../../services/nurseService';
 import { toast } from 'sonner';
+import DashboardLayout from '../../components/DashboardLayout';
+import { uploadReport, getAllPatients, getUploadedReports, updatePatientVitals } from '../../../services/nurseService';
 
-const NurseDashboard = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedPatient, setSelectedPatient] = useState('');
-  const [documentType, setDocumentType] = useState('');
+type NurseView = 'dashboard' | 'upload' | 'vitals';
+
+const REPORT_TYPES: Record<string, string> = {
+  lab: 'Lab Report',
+  radiology: 'X-Ray/Scan',
+  prescription: 'Prescription',
+  discharge: 'Discharge Summary',
+  other: 'Other',
+};
+
+const ACCEPTED_FILES = '.pdf,.jpg,.jpeg,.png,.doc,.docx';
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+const getTimeAgo = (date: Date) => {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return 'Just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  const hours = Math.floor(seconds / 3600);
+  if (seconds < 86400) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+  const days = Math.floor(seconds / 86400);
+  return `${days} day${days > 1 ? 's' : ''} ago`;
+};
+
+const PatientSelect = ({ id, patients, value, onChange }: {
+  id: string;
+  patients: any[];
+  value: string;
+  onChange: (value: string) => void;
+}) => (
+  <select id={id} className="form-select" value={value} onChange={(e) => onChange(e.target.value)} required>
+    <option value="">Choose patient...</option>
+    {patients.map((patient) => (
+      <option key={patient._id} value={patient._id}>
+        {patient.name} - {patient.email}
+      </option>
+    ))}
+  </select>
+);
+
+const emptyVitals = { bloodPressure: '', heartRate: '', temperature: '', weight: '', height: '' };
+
+const NurseDashboard = ({ view = 'dashboard' }: { view?: NurseView }) => {
   const [patients, setPatients] = useState<any[]>([]);
   const [recentUploads, setRecentUploads] = useState<any[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Load patients and reports on mount
-  useEffect(() => {
-    loadPatients();
-    loadReports();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadPatient, setUploadPatient] = useState('');
+  const [documentType, setDocumentType] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [vitalsPatient, setVitalsPatient] = useState('');
+  const [vitals, setVitals] = useState(emptyVitals);
+  const [savingVitals, setSavingVitals] = useState(false);
+
+  const loadReports = useCallback(async () => {
+    try {
+      setRecentUploads(await getUploadedReports());
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to load recent uploads');
+    }
   }, []);
 
-  const loadPatients = async () => {
-    try {
-      const patientsData = await getAllPatients();
-      setPatients(patientsData);
-    } catch (error: any) {
-      console.error('Failed to load patients:', error);
-      toast.error('Failed to load patients list');
+  useEffect(() => {
+    getAllPatients()
+      .then(setPatients)
+      .catch((error) => toast.error(error.message || 'Failed to load patients list'));
+    loadReports();
+  }, [loadReports]);
+
+  const selectFile = (file?: File) => {
+    if (!file) return;
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error('File is too large (max 10MB)');
+      return;
     }
+    setSelectedFile(file);
   };
 
-  const loadReports = async () => {
-    try {
-      const reports = await getUploadedReports();
-      setRecentUploads(reports);
-    } catch (error: any) {
-      console.error('Failed to load reports:', error);
-    }
-  };
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
-    }
-  };
-
-  const handleBrowseClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setSelectedFile(e.dataTransfer.files[0]);
-    }
-  };
-
-  const handleUploadDocument = async () => {
-    // Validation
     if (!selectedFile) {
       toast.error('Please select a file to upload');
       return;
     }
-    if (!selectedPatient) {
-      toast.error('Please select a patient');
-      return;
-    }
-    if (!documentType) {
-      toast.error('Please select a document type');
-      return;
-    }
 
     setIsUploading(true);
-
     try {
-      // Map document type to display name
-      const typeDisplayNames: Record<string, string> = {
-        'lab': 'Lab Report',
-        'radiology': 'X-Ray/Scan',
-        'prescription': 'Prescription',
-        'discharge': 'Discharge Summary',
-        'other': 'Other'
-      };
-
-      // Create FormData
       const formData = new FormData();
       formData.append('file', selectedFile);
-      formData.append('patientId', selectedPatient);
+      formData.append('patientId', uploadPatient);
       formData.append('reportType', documentType);
-      formData.append('title', `${typeDisplayNames[documentType]} - ${selectedFile.name}`);
-      formData.append('description', `${typeDisplayNames[documentType]} uploaded by nurse`);
+      formData.append('title', `${REPORT_TYPES[documentType]} - ${selectedFile.name}`);
 
-      // Upload
       await uploadReport(formData);
-      
       toast.success('Document uploaded successfully!');
-      
-      // Reload reports to show the new upload
       loadReports();
-      
-      // Reset form
+
       setSelectedFile(null);
-      setSelectedPatient('');
+      setUploadPatient('');
       setDocumentType('');
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (error: any) {
-      console.error('Upload error:', error);
       toast.error(error.message || 'Failed to upload document');
     } finally {
       setIsUploading(false);
     }
   };
 
-  const stats = [
-    {
-      icon: Users,
-      label: 'Patients Assigned',
-      value: patients.length.toString(),
-      change: '+6%',
-      color: '#667eea',
-      bgColor: '#f0f1ff',
-    },
-    {
-      icon: Upload,
-      label: 'Reports Uploaded',
-      value: recentUploads.length.toString(),
-      change: '+15%',
-      color: '#10b981',
-      bgColor: '#d1fae5',
-    },
-    {
-      icon: Activity,
-      label: 'Vitals Updated',
-      value: '34',
-      change: '+8%',
-      color: '#f59e0b',
-      bgColor: '#fef3c7',
-    },
-    {
-      icon: CheckCircle,
-      label: 'Tasks Completed',
-      value: '67',
-      change: '+12%',
-      color: '#06b6d4',
-      bgColor: '#cffafe',
-    },
-  ];
+  const handleSaveVitals = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const toNumber = (value: string) => (value === '' ? undefined : Number(value));
+    const payload = {
+      bloodPressure: vitals.bloodPressure.trim() || undefined,
+      heartRate: toNumber(vitals.heartRate),
+      temperature: toNumber(vitals.temperature),
+      weight: toNumber(vitals.weight),
+      height: toNumber(vitals.height),
+    };
 
-  const getTimeAgo = (date: Date) => {
-    const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
-    
-    if (seconds < 60) return 'Just now';
-    if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)} hour${Math.floor(seconds / 3600) > 1 ? 's' : ''} ago`;
-    return `${Math.floor(seconds / 86400)} day${Math.floor(seconds / 86400) > 1 ? 's' : ''} ago`;
-  };
+    if (Object.values(payload).every((v) => v === undefined)) {
+      toast.error('Enter at least one vital sign');
+      return;
+    }
 
-  const recentUploadsData = [
-    { id: 1, patient: 'John Doe', type: 'Lab Report', file: 'blood_test_report.pdf', time: '10 min ago', status: 'Uploaded' },
-    { id: 2, patient: 'Jane Smith', type: 'X-Ray', file: 'chest_xray.jpg', time: '25 min ago', status: 'Uploaded' },
-    { id: 3, patient: 'Mike Johnson', type: 'ECG Report', file: 'ecg_results.pdf', time: '1 hour ago', status: 'Uploaded' },
-    { id: 4, patient: 'Sarah Williams', type: 'Blood Pressure', file: 'bp_readings.csv', time: '2 hours ago', status: 'Uploaded' },
-  ];
-
-  const pendingTasks = [
-    { id: 1, patient: 'Emily Brown', task: 'Update vital signs', priority: 'High', due: '11:00 AM' },
-    { id: 2, patient: 'David Lee', task: 'Upload lab results', priority: 'Medium', due: '02:00 PM' },
-    { id: 3, patient: 'Lisa Chen', task: 'Record medication', priority: 'High', due: '03:30 PM' },
-    { id: 4, patient: 'Tom Wilson', task: 'Update case notes', priority: 'Low', due: '05:00 PM' },
-  ];
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'High': return 'danger';
-      case 'Medium': return 'warning';
-      case 'Low': return 'info';
-      default: return 'secondary';
+    setSavingVitals(true);
+    try {
+      await updatePatientVitals(vitalsPatient, payload);
+      toast.success('Vitals updated successfully');
+      setVitals(emptyVitals);
+      setVitalsPatient('');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update vitals');
+    } finally {
+      setSavingVitals(false);
     }
   };
 
-  return (
-    <div className="min-vh-100" style={{ background: '#f8f9fa', fontFamily: 'Inter, sans-serif' }}>
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      
-      <div className="d-lg-flex">
-        <div className="flex-grow-1">
-          <Navbar onMenuClick={() => setSidebarOpen(true)} />
-          
-          <div className="container-fluid p-4">
-            {/* Page Header */}
-            <div className="mb-4">
-              <h2 className="mb-2" style={{ fontFamily: 'Poppins, sans-serif' }}>
-                Nurse Dashboard
-              </h2>
-              <p className="text-muted">Manage patient care and documentation efficiently.</p>
-            </div>
+  const stats = [
+    { icon: Users, label: 'Registered Patients', value: patients.length, color: '#667eea', bg: '#f0f1ff' },
+    { icon: Upload, label: 'My Recent Uploads', value: recentUploads.length, color: '#10b981', bg: '#d1fae5' },
+  ];
 
-            {/* Stats Cards */}
-            <div className="row g-4 mb-4">
-              {stats.map((stat, idx) => (
-                <div key={idx} className="col-6 col-lg-3">
-                  <motion.div
-                    className="card border-0 shadow-sm h-100"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.1 }}
-                    whileHover={{ y: -5, transition: { duration: 0.2 } }}
-                  >
-                    <div className="card-body">
-                      <div className="d-flex justify-content-between align-items-start mb-3">
-                        <div className="rounded-3 d-flex align-items-center justify-content-center"
-                          style={{
-                            width: '50px',
-                            height: '50px',
-                            backgroundColor: stat.bgColor,
-                          }}>
-                          <stat.icon size={24} style={{ color: stat.color }} />
-                        </div>
-                        <span className={`badge ${stat.change.startsWith('+') ? 'bg-success' : 'bg-danger'}`}>
-                          {stat.change}
-                        </span>
-                      </div>
-                      <h3 className="mb-1">{stat.value}</h3>
-                      <p className="text-muted small mb-0">{stat.label}</p>
-                    </div>
-                  </motion.div>
-                </div>
-              ))}
-            </div>
+  const uploadCard = (
+    <div className="card border-0 shadow-sm h-100">
+      <div className="card-body">
+        <h5 className="mb-4" style={{ fontFamily: 'Poppins, sans-serif' }}>Upload Report</h5>
 
-            <div className="row g-4">
-              {/* Quick Upload Section */}
-              <div className="col-lg-6">
-                <div className="card border-0 shadow-sm">
-                  <div className="card-body">
-                    <h5 className="mb-4" style={{ fontFamily: 'Poppins, sans-serif' }}>
-                      Quick Upload
-                    </h5>
-
-                    <div 
-                      className="border-2 border-dashed rounded-4 p-5 text-center"
-                      style={{ 
-                        borderColor: '#667eea',
-                        background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)',
-                        cursor: 'pointer',
-                        transition: 'all 0.3s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)';
-                      }}
-                      onClick={handleBrowseClick}
-                      onDragOver={handleDragOver}
-                      onDrop={handleDrop}
-                    >
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        className="d-none"
-                        onChange={handleFileSelect}
-                        accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.csv"
-                      />
-                      <Upload size={48} className="mb-3" style={{ color: '#667eea' }} />
-                      <h6 className="mb-2">Drag & Drop Files Here</h6>
-                      <p className="text-muted small mb-3">or click to browse</p>
-                      {selectedFile ? (
-                        <div className="alert alert-success py-2 mb-0">
-                          <small>Selected: {selectedFile.name}</small>
-                        </div>
-                      ) : (
-                        <button className="btn btn-primary" type="button">
-                          Select Files
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="mt-4">
-                      <label className="form-label">Select Patient</label>
-                      <select 
-                        className="form-select mb-3"
-                        value={selectedPatient}
-                        onChange={(e) => setSelectedPatient(e.target.value)}
-                      >
-                        <option value="">Choose patient...</option>
-                        {patients.map((patient) => (
-                          <option key={patient._id} value={patient._id}>
-                            {patient.name} - {patient.email}
-                          </option>
-                        ))}
-                      </select>
-
-                      <label className="form-label">Document Type</label>
-                      <select 
-                        className="form-select mb-3"
-                        value={documentType}
-                        onChange={(e) => setDocumentType(e.target.value)}
-                      >
-                        <option value="">Choose type...</option>
-                        <option value="lab">Lab Report</option>
-                        <option value="radiology">X-Ray/Scan</option>
-                        <option value="prescription">Prescription</option>
-                        <option value="discharge">Discharge Summary</option>
-                        <option value="other">Other</option>
-                      </select>
-
-                      <button 
-                        className="btn w-100 text-white"
-                        style={{
-                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                        }}
-                        onClick={handleUploadDocument}
-                        disabled={isUploading}
-                      >
-                        {isUploading ? 'Uploading...' : 'Upload Document'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
+        <form onSubmit={handleUpload}>
+          <div
+            className="border border-2 rounded-4 p-5 text-center"
+            style={{
+              borderStyle: 'dashed',
+              borderColor: '#667eea',
+              background: isDragging ? 'rgba(102, 126, 234, 0.12)' : 'rgba(102, 126, 234, 0.05)',
+              cursor: 'pointer',
+            }}
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInputRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              selectFile(e.dataTransfer.files?.[0]);
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label="Select a file to upload"
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="d-none"
+              onChange={(e) => selectFile(e.target.files?.[0])}
+              accept={ACCEPTED_FILES}
+            />
+            <Upload size={48} className="mb-3" style={{ color: '#667eea' }} />
+            <h6 className="mb-2">Drag & Drop a File Here</h6>
+            <p className="text-muted small mb-3">PDF, JPG, PNG, DOC or DOCX — max 10MB</p>
+            {selectedFile ? (
+              <div className="alert alert-success py-2 mb-0">
+                <small>Selected: {selectedFile.name}</small>
               </div>
-
-              {/* Recent Uploads */}
-              <div className="col-lg-6">
-                <div className="card border-0 shadow-sm h-100">
-                  <div className="card-body">
-                    <div className="d-flex justify-content-between align-items-center mb-4">
-                      <h5 className="mb-0" style={{ fontFamily: 'Poppins, sans-serif' }}>
-                        Recent Uploads
-                      </h5>
-                      <button className="btn btn-sm btn-outline-primary">View All</button>
-                    </div>
-
-                    <div className="d-flex flex-column gap-3">
-                      {recentUploads.length === 0 ? (
-                        <div className="text-center py-5 text-muted">
-                          <Upload size={48} className="mb-3 opacity-50" />
-                          <p>No uploads yet. Upload your first document above.</p>
-                        </div>
-                      ) : (
-                        recentUploads.slice(0, 4).map((upload, idx) => {
-                          const timeAgo = getTimeAgo(new Date(upload.createdAt));
-                          const reportTypeDisplay = {
-                            'lab': 'Lab Report',
-                            'radiology': 'X-Ray/Scan',
-                            'prescription': 'Prescription',
-                            'discharge': 'Discharge Summary',
-                            'other': 'Other'
-                          }[upload.reportType] || upload.reportType;
-
-                          return (
-                            <motion.div
-                              key={upload._id}
-                              className="d-flex align-items-start gap-3 p-3 rounded-3 border"
-                              initial={{ opacity: 0, x: 20 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              transition={{ delay: idx * 0.1 }}
-                              style={{ background: '#f8f9fa' }}
-                            >
-                              <div className="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
-                                style={{
-                                  width: '45px',
-                                  height: '45px',
-                                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                }}>
-                                <FileText size={20} className="text-white" />
-                              </div>
-                              <div className="flex-grow-1">
-                                <h6 className="mb-1">{upload.patientId?.name || 'Unknown Patient'}</h6>
-                                <p className="text-muted small mb-1">{reportTypeDisplay} • {upload.fileName}</p>
-                                <div className="d-flex justify-content-between align-items-center">
-                                  <small className="text-muted">{timeAgo}</small>
-                                  <span className="badge bg-success">Uploaded</span>
-                                </div>
-                              </div>
-                            </motion.div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Pending Tasks */}
-            <div className="row g-4 mt-2">
-              <div className="col-12">
-                <div className="card border-0 shadow-sm">
-                  <div className="card-body">
-                    <div className="d-flex justify-content-between align-items-center mb-4">
-                      <h5 className="mb-0" style={{ fontFamily: 'Poppins, sans-serif' }}>
-                        Pending Tasks
-                      </h5>
-                      <button className="btn btn-sm btn-primary">Add Task</button>
-                    </div>
-
-                    <div className="table-responsive">
-                      <table className="table table-hover align-middle">
-                        <thead className="bg-light">
-                          <tr>
-                            <th className="border-0">Patient</th>
-                            <th className="border-0">Task</th>
-                            <th className="border-0">Priority</th>
-                            <th className="border-0">Due Time</th>
-                            <th className="border-0">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {pendingTasks.map((task, idx) => (
-                            <motion.tr
-                              key={idx}
-                              initial={{ opacity: 0 }}
-                              animate={{ opacity: 1 }}
-                              transition={{ delay: idx * 0.05 }}
-                            >
-                              <td>{task.patient}</td>
-                              <td>{task.task}</td>
-                              <td>
-                                <span className={`badge bg-${getPriorityColor(task.priority)}`}>
-                                  {task.priority}
-                                </span>
-                              </td>
-                              <td>
-                                <div className="d-flex align-items-center gap-2">
-                                  <Clock size={14} className="text-muted" />
-                                  <span className="small">{task.due}</span>
-                                </div>
-                              </td>
-                              <td>
-                                <button className="btn btn-sm btn-success me-2">Complete</button>
-                                <button className="btn btn-sm btn-light">View</button>
-                              </td>
-                            </motion.tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            ) : (
+              <span className="btn btn-primary">Select File</span>
+            )}
           </div>
+
+          <div className="mt-4">
+            <label className="form-label" htmlFor="upload-patient">Patient</label>
+            <div className="mb-3">
+              <PatientSelect id="upload-patient" patients={patients} value={uploadPatient} onChange={setUploadPatient} />
+            </div>
+
+            <label className="form-label" htmlFor="upload-type">Document Type</label>
+            <select
+              id="upload-type"
+              className="form-select mb-3"
+              value={documentType}
+              onChange={(e) => setDocumentType(e.target.value)}
+              required
+            >
+              <option value="">Choose type...</option>
+              {Object.entries(REPORT_TYPES).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+
+            <button
+              type="submit"
+              className="btn w-100 text-white"
+              style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
+              disabled={isUploading}
+            >
+              {isUploading ? 'Uploading...' : 'Upload Document'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+
+  const vitalsField = (field: keyof typeof emptyVitals, label: string, props: React.InputHTMLAttributes<HTMLInputElement>) => (
+    <div className="col-6">
+      <label className="form-label" htmlFor={`vitals-${field}`}>{label}</label>
+      <input
+        id={`vitals-${field}`}
+        className="form-control"
+        value={vitals[field]}
+        onChange={(e) => setVitals((current) => ({ ...current, [field]: e.target.value }))}
+        {...props}
+      />
+    </div>
+  );
+
+  const vitalsCard = (
+    <div className="card border-0 shadow-sm h-100">
+      <div className="card-body">
+        <h5 className="mb-4" style={{ fontFamily: 'Poppins, sans-serif' }}>
+          <Activity size={20} className="me-2" />
+          Update Vitals
+        </h5>
+        <form onSubmit={handleSaveVitals}>
+          <label className="form-label" htmlFor="vitals-patient">Patient</label>
+          <div className="mb-3">
+            <PatientSelect id="vitals-patient" patients={patients} value={vitalsPatient} onChange={setVitalsPatient} />
+          </div>
+          <div className="row g-3 mb-4">
+            {vitalsField('bloodPressure', 'Blood Pressure', { placeholder: '120/80', pattern: '\\d{2,3}/\\d{2,3}' })}
+            {vitalsField('heartRate', 'Heart Rate (bpm)', { type: 'number', min: 20, max: 250 })}
+            {vitalsField('temperature', 'Temperature', { type: 'number', step: '0.1', min: 25, max: 115 })}
+            {vitalsField('weight', 'Weight (kg)', { type: 'number', step: '0.1', min: 0 })}
+            {vitalsField('height', 'Height (cm)', { type: 'number', step: '0.1', min: 0 })}
+          </div>
+          <button type="submit" className="btn btn-primary w-100" disabled={savingVitals}>
+            {savingVitals ? 'Saving...' : 'Save Vitals'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+
+  const recentUploadsCard = (
+    <div className="card border-0 shadow-sm h-100">
+      <div className="card-body">
+        <h5 className="mb-4" style={{ fontFamily: 'Poppins, sans-serif' }}>Recent Uploads</h5>
+        <div className="d-flex flex-column gap-3">
+          {recentUploads.length === 0 ? (
+            <div className="text-center py-5 text-muted">
+              <Upload size={48} className="mb-3 opacity-50" />
+              <p className="mb-0">No uploads yet.</p>
+            </div>
+          ) : (
+            recentUploads.slice(0, 6).map((upload, idx) => (
+              <motion.div
+                key={upload._id}
+                className="d-flex align-items-start gap-3 p-3 rounded-3 border"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: idx * 0.05 }}
+                style={{ background: '#f8f9fa' }}
+              >
+                <div
+                  className="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
+                  style={{ width: '45px', height: '45px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
+                >
+                  <FileText size={20} className="text-white" />
+                </div>
+                <div className="flex-grow-1" style={{ minWidth: 0 }}>
+                  <h6 className="mb-1">{upload.patientId?.name || 'Unknown Patient'}</h6>
+                  <p className="text-muted small mb-1 text-truncate">
+                    {REPORT_TYPES[upload.reportType] || upload.reportType} • {upload.fileName}
+                  </p>
+                  <small className="text-muted">{getTimeAgo(new Date(upload.createdAt))}</small>
+                </div>
+              </motion.div>
+            ))
+          )}
         </div>
       </div>
     </div>
+  );
+
+  const titles: Record<NurseView, string> = {
+    dashboard: 'Nurse Dashboard',
+    upload: 'Upload Reports',
+    vitals: 'Update Vitals',
+  };
+
+  return (
+    <DashboardLayout title={titles[view]} subtitle="Manage patient care and documentation efficiently.">
+      {view === 'dashboard' && (
+        <div className="row g-4 mb-4">
+          {stats.map((stat) => (
+            <div key={stat.label} className="col-6">
+              <div className="card border-0 shadow-sm h-100">
+                <div className="card-body d-flex align-items-center gap-3">
+                  <div
+                    className="rounded-3 d-flex align-items-center justify-content-center"
+                    style={{ width: '50px', height: '50px', backgroundColor: stat.bg }}
+                  >
+                    <stat.icon size={24} style={{ color: stat.color }} />
+                  </div>
+                  <div>
+                    <h3 className="mb-0">{stat.value}</h3>
+                    <p className="text-muted small mb-0">{stat.label}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="row g-4">
+        {view !== 'vitals' && <div className="col-lg-6">{uploadCard}</div>}
+        {view !== 'upload' && <div className="col-lg-6">{vitalsCard}</div>}
+        {view === 'upload' && <div className="col-lg-6">{recentUploadsCard}</div>}
+        {view === 'dashboard' && <div className="col-12">{recentUploadsCard}</div>}
+      </div>
+    </DashboardLayout>
   );
 };
 
